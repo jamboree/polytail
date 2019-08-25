@@ -61,19 +61,13 @@ namespace pltl
 
         template<class Trait>
         using vptr_storage_t = typename vptr_storage<Trait, (sizeof(Trait) > sizeof(void*))>::type;
-    }
 
-    template<class Trait>
-    struct trait_object
-    {
-        detail::vptr_storage_t<Trait> vptr;
-    };
+        template<class Trait>
+        struct trait_object
+        {
+            vptr_storage_t<Trait> vptr;
+        };
 
-    template<class Trait, class Trait2, std::enable_if_t<std::is_base_of_v<Trait, Trait2>, bool> = true>
-    inline Trait const& get_impl(trait_object<Trait2> p) { return *p.vptr; }
-
-    namespace detail
-    {
         template<bool mut>
         struct indirect_data
         {
@@ -104,8 +98,11 @@ namespace pltl
         };
     }
 
+    template<class Trait, class Trait2, std::enable_if_t<std::is_base_of_v<Trait, Trait2>, bool> = true>
+    inline Trait const& get_impl(detail::trait_object<Trait2> p) { return *p.vptr; }
+
     template<class Trait>
-    struct boxed : trait_object<detail::boxed_trait<Trait>>
+    struct boxed : detail::trait_object<detail::boxed_trait<Trait>>
     {
         std::uintptr_t data() const noexcept { return (*this->vptr).data(this); }
         friend void destruct(boxed* self) noexcept { (*self->vptr).destruct(self); }
@@ -184,7 +181,7 @@ namespace pltl
         template<class Trait2, std::enable_if_t<std::is_base_of_v<Trait, Trait2>, bool> = true>
         dyn_ref(boxed<Trait2> const& r) noexcept : base_t(r.data(), r.vptr) {}
 
-        dyn_ptr<Trait> get_ptr() const noexcept { return dyn_ptr<Trait>(*this); }
+        dyn_ptr<Trait const> get_ptr() const noexcept { return dyn_ptr<Trait const>(*this); }
     };
 
     namespace detail

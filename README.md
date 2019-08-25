@@ -1,6 +1,103 @@
-# polytail
+polytail
+========
 Rust-like trait-based polymorphism for C++
 
+## Overview
+One thing that Rust does better than C++ is its trait system. This library aims
+to offer some important benefits of the trait system:
+
+* Non-intrusive
+* Extensible (not restricted to inheritance hierarchy)
+* Semantic-based
+
+It can be used with or without type-erasure.
+
+### Header
+This is a header-only library with a single header and without extra dependancy.
+```c++
+#include <polytail.hpp>
+```
+### Synopsis
+```c++
+namespace pltl
+{
+    template<class Trait, class T>
+    struct impl_for; // User-supplied specialization.
+
+    template<class Trait, class T>
+    inline Trait const vtable; // User-supplied specialization.
+
+    template<class Trait>
+    struct boxed;
+
+    template<class Trait>
+    struct dyn_ptr;
+
+    template<class Trait>
+    struct dyn_ref;
+
+    struct mut_this;
+    struct const_this;
+
+    template<class Trait, class T>
+    inline std::unique_ptr<boxed<Trait>, /*unspecified*/> box_unique(T val);
+
+    template<class Trait, class T>
+    inline std::shared_ptr<boxed<Trait>> box_shared(T val);
+}
+```
+
+## How to
+### Define a trait:
+```c++
+namespace StrConv
+{
+    struct trait
+    {
+        std::string(*to_str)(pltl::const_this self);
+        void(*from_str)(pltl::mut_this self, std::string_view str);
+    };
+
+    template<class Self>
+    inline auto to_str(Self&& self) -> POLYTAIL_RET(std::string, to_str(self))
+
+    template<class Self>
+    inline auto from_str(Self&& self, std::string_view str) -> POLYTAIL_RET(void, from_str(self, str))
+}
+
+template<class T>
+inline StrConv::trait const pltl::vtable<StrConv::trait, T>
+{
+    [](const_this self) { return impl_for<StrConv::trait, T>::to_str(self.get<T>()); },
+    [](mut_this self, std::string_view str) { impl_for<StrConv::trait, T>::from_str(self.get<T>(), str); }
+};
+```
+
+### Implement a trait for a type:
+```c++
+template<>
+struct pltl::impl_for<StrConv::trait, int>
+{
+    static std::string to_str(int self)
+    {
+        return std::to_string(self);
+    }
+
+    static void from_str(int& self, std::string_view str)
+    {
+        std::from_chars(str.data(), str.data() + str.size(), self);
+    }
+};
+```
+
+### Use a trait
+```c++
+int a = 42;
+StrConv::to_str(a); // Without type-erasure.
+
+pltl::dyn_ref<StrConv::trait> aa(a);
+to_str(a); // With type-erasure.
+```
 
 ## License
 
