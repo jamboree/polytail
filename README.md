@@ -12,6 +12,9 @@ to offer some important benefits of the trait system:
 
 It can be used with or without type-erasure.
 
+### Requirements
+- C++17
+
 ### Header
 This is a header-only library with a single header and without extra dependancy.
 ```c++
@@ -92,11 +95,20 @@ struct pltl::impl_for<StrConv::trait, int>
 
 ### Use a trait
 ```c++
+std::string s;
 int a = 42;
-StrConv::to_str(a); // Without type-erasure.
+// Without type-erasure.
+s = StrConv::to_str(a);
+assert(s == "42");
+StrConv::from_str(a, "25");
+assert(a == 25);
 
+// With type-erasure & ADL.
 pltl::dyn_ref<StrConv::trait> aa(a);
-to_str(a); // With type-erasure.
+s = to_str(aa);
+assert(s == "25");
+from_str(aa, "1");
+assert(a == 1);
 ```
 
 ## License

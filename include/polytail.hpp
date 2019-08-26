@@ -12,23 +12,42 @@
 
 namespace pltl
 {
+    template<class Expr, class T>
+    struct enable_expr
+    {
+        using type = T;
+    };
+
+    template<class Expr, class T>
+    using enable_expr_t = typename enable_expr<Expr, T>::type;
+
     namespace detail
     {
-        template<class U>
-        auto test_complete(U*) -> std::bool_constant<sizeof(U)>;
+        template<class T>
+        auto test_complete(T*) -> std::bool_constant<sizeof(T)>;
         auto test_complete(...) -> std::false_type;
+
+        template<class T, class U>
+        auto test_compare(T* a, U* b) -> enable_expr_t<decltype(a == b), std::true_type>;
+        auto test_compare(...) -> std::false_type;
+
+        template<class T>
+        using is_complete = decltype(test_complete(std::declval<T*>()));
+
+        template<class T>
+        constexpr bool is_complete_v = is_complete<T>::value;
+
+        template<class T, class U>
+        using is_comparable = decltype(test_compare(std::declval<T*>(), std::declval<U*>()));
+
+        template<class T, class U>
+        constexpr bool is_comparable_v = is_comparable<T, U>::value;
     }
-
-    template<class T>
-    using is_complete = decltype(detail::test_complete(std::declval<T*>()));
-
-    template<class T>
-    constexpr bool is_complete_v = is_complete<T>::value;
 
     template<class Trait, class T>
     struct impl_for;
 
-    template<class Trait, class T, std::enable_if_t<is_complete_v<impl_for<Trait, T>>, bool> = true>
+    template<class Trait, class T, std::enable_if_t<detail::is_complete_v<impl_for<Trait, T>>, bool> = true>
     constexpr impl_for<Trait, T> get_impl(T const&) { return {}; }
 
     template<class Trait, class T>
@@ -115,10 +134,12 @@ namespace pltl
 
         dyn_ptr() = default;
 
-        template<class T, std::enable_if_t<is_complete_v<impl_for<Trait, T>>, bool> = true>
+        dyn_ptr(std::nullptr_t) noexcept {}
+
+        template<class T, std::enable_if_t<detail::is_complete_v<impl_for<Trait, T>>, bool> = true>
         dyn_ptr(T* p) noexcept : base_t(reinterpret_cast<std::uintptr_t>(p), &vtable<Trait, T>) {}
 
-        template<class Trait2, std::enable_if_t<std::is_convertible_v<Trait*, Trait2*>, bool> = true>
+        template<class Trait2, std::enable_if_t<std::is_convertible_v<Trait2*, Trait*>, bool> = true>
         dyn_ptr(dyn_ptr<Trait2> p) noexcept : base_t(p.data, p.vptr) {}
 
         template<class Trait2, std::enable_if_t<std::is_base_of_v<Trait, Trait2>, bool> = true>
@@ -136,10 +157,12 @@ namespace pltl
 
         dyn_ptr() = default;
 
-        template<class T, std::enable_if_t<is_complete_v<impl_for<Trait, T>>, bool> = true>
+        dyn_ptr(std::nullptr_t) noexcept {}
+
+        template<class T, std::enable_if_t<detail::is_complete_v<impl_for<Trait, T>>, bool> = true>
         dyn_ptr(T const* p) noexcept : base_t(reinterpret_cast<std::uintptr_t>(p), &vtable<Trait, T>) {}
 
-        template<class Trait2, std::enable_if_t<std::is_convertible_v<Trait*, Trait2*>, bool> = true>
+        template<class Trait2, std::enable_if_t<std::is_convertible_v<Trait2*, Trait*>, bool> = true>
         dyn_ptr(dyn_ptr<Trait2> p) noexcept : base_t(p.data, p.vptr) {}
 
         template<class Trait2, std::enable_if_t<std::is_base_of_v<Trait, Trait2>, bool> = true>
@@ -150,15 +173,45 @@ namespace pltl
         explicit operator bool() const noexcept { return !!this->data; }
     };
 
+    template<class T, class U, std::enable_if_t<detail::is_comparable_v<T, U>, bool> = true>
+    inline bool operator==(dyn_ptr<T> a, dyn_ptr<U> b) noexcept
+    {
+        return a.data == b.data;
+    }
+
+    template<class T>
+    inline bool operator==(dyn_ptr<T> a, std::nullptr_t) noexcept
+    {
+        return !!a.data;
+    }
+
+    template<class T, class U, std::enable_if_t<detail::is_comparable_v<T, U>, bool> = true>
+    inline bool operator!=(dyn_ptr<T> a, dyn_ptr<U> b) noexcept
+    {
+        return a.data != b.data;
+    }
+
+    template<class T>
+    inline bool operator!=(dyn_ptr<T> a, std::nullptr_t) noexcept
+    {
+        return !a.data;
+    }
+
+    template<class T, class U, std::enable_if_t<detail::is_comparable_v<T, U>, bool> = true>
+    inline bool operator<(dyn_ptr<T> a, dyn_ptr<U> b) noexcept
+    {
+        return a.data < b.data;
+    }
+
     template<class Trait>
     struct dyn_ref : detail::proxy<Trait, true>
     {
         using base_t = detail::proxy<Trait, true>;
 
-        template<class T, std::enable_if_t<is_complete_v<impl_for<Trait, T>>, bool> = true>
+        template<class T, std::enable_if_t<detail::is_complete_v<impl_for<Trait, T>>, bool> = true>
         dyn_ref(T& r) noexcept : base_t(reinterpret_cast<std::uintptr_t>(&r), &vtable<Trait, T>) {}
 
-        template<class Trait2, std::enable_if_t<std::is_convertible_v<Trait*, Trait2*>, bool> = true>
+        template<class Trait2, std::enable_if_t<std::is_convertible_v<Trait2*, Trait*>, bool> = true>
         dyn_ref(dyn_ref<Trait2> r) noexcept : base_t(r.data, r.vptr) {}
 
         template<class Trait2, std::enable_if_t<std::is_base_of_v<Trait, Trait2>, bool> = true>
@@ -172,10 +225,10 @@ namespace pltl
     {
         using base_t = detail::proxy<Trait, false>;
 
-        template<class T, std::enable_if_t<is_complete_v<impl_for<Trait, T>>, bool> = true>
+        template<class T, std::enable_if_t<detail::is_complete_v<impl_for<Trait, T>>, bool> = true>
         dyn_ref(T const& r) noexcept : base_t(reinterpret_cast<std::uintptr_t>(&r), &vtable<Trait, T>) {}
 
-        template<class Trait2, std::enable_if_t<std::is_convertible_v<Trait*, Trait2*>, bool> = true>
+        template<class Trait2, std::enable_if_t<std::is_convertible_v<Trait2*, Trait*>, bool> = true>
         dyn_ref(dyn_ref<Trait2> r) noexcept : base_t(r.data, r.vptr) {}
 
         template<class Trait2, std::enable_if_t<std::is_base_of_v<Trait, Trait2>, bool> = true>
@@ -253,18 +306,12 @@ namespace pltl
         template<class T>
         T const& get() noexcept { return *reinterpret_cast<T const*>(self); }
     };
-
-    template<class Expr, class T>
-    struct enable_expr
-    {
-        using type = T;
-    };
-
-    template<class Expr, class T>
-    using enable_expr_t = typename enable_expr<Expr, T>::type;
 }
 
-#define Z_POLYTAIL_RET(T, expr) ::pltl::enable_expr_t<decltype(expr), T> { return expr; }
-#define POLYTAIL_RET(T, expr) Z_POLYTAIL_RET(T, ::pltl::get_impl<trait>(self).expr)
+#define Zz_POLYTAIL_RM_PAREN(...) __VA_ARGS__
+#define Zz_POLYTAIL_RET(T, expr) ::pltl::enable_expr_t<decltype(expr), T> { return expr; }
+#define Zz_POLYTAIL_RET_PAREN(T, expr) ::pltl::enable_expr_t<decltype(expr), Zz_POLYTAIL_RM_PAREN T> { return expr; }
+#define POLYTAIL_RET(T, expr) Zz_POLYTAIL_RET(T, ::pltl::get_impl<trait>(self).expr)
+#define POLYTAIL_RET_PAREN(T, expr) Zz_POLYTAIL_RET_PAREN(T, ::pltl::get_impl<trait>(self).expr)
 
 #endif
