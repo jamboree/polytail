@@ -115,10 +115,19 @@ namespace pltl
                 this->vptr = vptr;
             }
         };
+
+        template<class Trait, class Trait2>
+        using deduce_t = decltype(Trait::deduce(std::declval<Trait2>()));
     }
 
     template<class Trait, class Trait2, std::enable_if_t<std::is_base_of_v<Trait, Trait2>, bool> = true>
-    inline Trait const& get_impl(detail::trait_object<Trait2> p) { return *p.vptr; }
+    inline Trait const& get_impl(detail::trait_object<Trait2> const& p) { return *p.vptr; }
+
+    template<class Trait, class Trait2>
+    inline detail::deduce_t<Trait, Trait2> const& get_impl(detail::trait_object<Trait2> const& p) { return *p.vptr; }
+
+    template<class Trait, class T>
+    using impl_t = std::decay_t<decltype(get_impl<Trait>(std::declval<T>()))>;
 
     template<class Trait>
     struct boxed : detail::trait_object<detail::boxed_trait<Trait>>
@@ -313,5 +322,7 @@ namespace pltl
 #define Zz_POLYTAIL_RET_PAREN(T, expr) ::pltl::enable_expr_t<decltype(expr), Zz_POLYTAIL_RM_PAREN T> { return expr; }
 #define POLYTAIL_RET(T, expr) Zz_POLYTAIL_RET(T, ::pltl::get_impl<trait>(self).expr)
 #define POLYTAIL_RET_PAREN(T, expr) Zz_POLYTAIL_RET_PAREN(T, ::pltl::get_impl<trait>(self).expr)
+#define POLYTAIL_RET_TMP(T, trait, expr) Zz_POLYTAIL_RET(T, ::pltl::get_impl<trait>(self).expr)
+#define POLYTAIL_RET_TMP_PAREN(T, trait, expr) Zz_POLYTAIL_RET_PAREN(T, ::pltl::get_impl<trait>(self).expr)
 
 #endif
