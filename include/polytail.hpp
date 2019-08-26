@@ -290,6 +290,25 @@ namespace pltl
         return std::make_shared<detail::boxer<Trait, T>>(std::move(val));
     }
 
+    namespace detail
+    {
+        template<class Sig>
+        using fn_ptr = Sig*;
+
+        template<class T, auto F>
+        struct delegate_t
+        {
+            template<class R, class U, class... A>
+            constexpr operator fn_ptr<R(U, A...)>() const
+            {
+                return [](U self, A... a) -> R { return F(self.get<T>(), std::forward<A>(a)...); };
+            }
+        };
+    }
+
+    template<class T, auto F>
+    constexpr detail::delegate_t<T, F> delegate{};
+
     struct mut_this
     {
         std::uintptr_t self;
@@ -314,6 +333,12 @@ namespace pltl
 
         template<class T>
         T const& get() noexcept { return *reinterpret_cast<T const*>(self); }
+    };
+
+    struct ignore_this
+    {
+        template<class T>
+        constexpr ignore_this(T const& b) {}
     };
 }
 
