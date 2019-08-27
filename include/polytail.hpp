@@ -68,33 +68,36 @@ namespace pltl
         constexpr bool is_composite_v = is_composite<T>::value;
 
         template<class Trait>
-        struct direct_vptr_storage : Trait
+        struct vtable_as_ptr : Trait
         {
-            direct_vptr_storage() = default;
+            vtable_as_ptr() = default;
 
-            //template<class Trait2>
-            constexpr direct_vptr_storage(Trait const* p) : Trait(*p) {}
+            template<class Trait2>
+            constexpr vtable_as_ptr(Trait2 const* p) : Trait(*p) {}
+
+            template<class Trait2>
+            constexpr vtable_as_ptr(Trait2 const& p) : Trait(p) {}
 
             Trait const& operator*() const noexcept { return *this; }
         };
 
         template<class Trait, bool Implace>
-        struct vptr_storage
+        struct trait_object
         {
-            using type = Trait const*;
+            Trait const* vptr;
+
+            constexpr explicit trait_object(Trait const* p) : vptr(p) {}
+            constexpr explicit trait_object(trait_object const* p) : vptr(p->vptr) {}
         };
 
         template<class Trait>
-        struct vptr_storage<Trait, true>
+        struct trait_object<Trait, true>
         {
-            using type = direct_vptr_storage<Trait>;
+            vtable_as_ptr<Trait> vptr;
         };
 
-        template<class Trait, bool ForceImplace>
-        struct trait_object
-        {
-            typename vptr_storage<Trait, ForceImplace || sizeof(Trait) <= sizeof(void*)>::type vptr;
-        };
+        template<class Trait, bool ForceImplace = false>
+        using trait_base = trait_object<Trait, ForceImplace || sizeof(Trait) <= sizeof(void*)>;
 
         template<bool Mut>
         struct indirect_data
@@ -113,15 +116,18 @@ namespace pltl
         };
 
         template<class Trait, bool Mut>
-        struct proxy : indirect_data<Mut>, trait_object<Trait, is_composite_v<Trait>>
+        struct proxy : indirect_data<Mut>, trait_base<Trait, is_composite_v<Trait>>
         {
         protected:
-            proxy() noexcept { this->data = 0; }
+            proxy() noexcept : indirect_data<Mut>{0} {}
 
-            proxy(std::uintptr_t data, Trait const* vptr) noexcept
+            template<class Vptr>
+            proxy(std::uintptr_t data, Vptr vptr) noexcept
+              : indirect_data<Mut>{data}
+              , trait_base<Trait, is_composite_v<Trait>>{vptr}
             {
-                this->data = data;
-                this->vptr = vptr;
+                //this->data = data;
+                //this->vptr = vptr;
             }
         };
 
@@ -130,22 +136,25 @@ namespace pltl
 
         template<class T, class... Trait>
         constexpr bool all_implemented_v = std::conjunction_v<is_complete<impl_for<Trait, T>>...>;
-
-        template<class Trait>
-        constexpr Trait const* get_vptr(Trait const& p) { return &p; }
-
-        template<class Trait, class... T>
-        constexpr Trait const* get_vptr(composite<T...> const& p)
-        {
-            return &*static_cast<trait_object<Trait, false> const&>(p).vptr;
-        }
     }
 
     template<class... Trait>
-    struct composite : detail::trait_object<Trait, false>... {};
+    struct composite : detail::trait_base<Trait>...
+    {
+        constexpr composite(Trait const&... vtable) : detail::trait_base<Trait>{&vtable}... {}
+
+        template<class... Trait2>
+        constexpr composite(composite<Trait2...> const& other) noexcept : detail::trait_base<Trait>(other)... {}
+
+        template<class Trait2>
+        operator Trait2 const&() const noexcept
+        {
+            return *static_cast<detail::trait_base<Trait2> const*>(this)->vptr;
+        }
+    };
 
     template<class... Trait, class T>
-    inline composite<Trait...> const vtable<composite<Trait...>, T>{{&vtable<Trait, T>}...};
+    inline composite<Trait...> const vtable<composite<Trait...>, T>{vtable<Trait, T>...};
 
     template<class... Trait, class T>
     struct impl_for<composite<Trait...>, T, std::enable_if_t<detail::all_implemented_v<T, Trait...>>> {};
@@ -156,7 +165,7 @@ namespace pltl
         struct is_subtrait_no_const : std::is_base_of<T, U> {};
 
         template<class T, class... U>
-        struct is_subtrait_no_const<T, composite<U...>> : std::is_base_of<trait_object<T, false>, composite<U...>> {};
+        struct is_subtrait_no_const<T, composite<U...>> : std::is_base_of<trait_base<T>, composite<U...>> {};
 
         template<class... T, class U>
         struct is_subtrait_no_const<composite<T...>, U> : std::conjunction<is_subtrait_no_const<T, U>...> {};
@@ -180,11 +189,11 @@ namespace pltl
         constexpr bool is_subtrait_v = is_subtrait<T, U>::value;
     }
 
-    template<class Trait, class Trait2, bool FI, std::enable_if_t<detail::is_subtrait_v<Trait, Trait2>, bool> = true>
-    inline Trait const& get_impl(detail::trait_object<Trait2, FI> const& p) { return *detail::get_vptr<Trait>(*p.vptr); }
+    template<class Trait, class Trait2, bool I, std::enable_if_t<detail::is_subtrait_v<Trait, Trait2>, bool> = true>
+    inline Trait const& get_impl(detail::trait_object<Trait2, I> const& p) { return *p.vptr; }
 
-    template<class Trait, class Trait2, bool FI>
-    inline detail::deduce_t<Trait, Trait2> const& get_impl(detail::trait_object<Trait2, FI> const& p) { return *p.vptr; }
+    template<class Trait, class Trait2, bool I>
+    inline detail::deduce_t<Trait, Trait2> const& get_impl(detail::trait_object<Trait2, I> const& p) { return *p.vptr; }
 
     template<class Trait, class T>
     using impl_t = std::decay_t<decltype(get_impl<Trait>(std::declval<T>()))>;
@@ -192,6 +201,10 @@ namespace pltl
     template<class Trait>
     struct boxed : detail::trait_object<detail::boxed_trait<Trait>, false>
     {
+        explicit boxed(detail::boxed_trait<Trait> const* vptr)
+          : detail::trait_object<detail::boxed_trait<Trait>, false>{vptr}
+        {}
+
         std::uintptr_t data() const noexcept { return (*this->vptr).data(this); }
         friend void destruct(boxed* self) noexcept { (*self->vptr).destruct(self); }
     };
@@ -209,10 +222,10 @@ namespace pltl
         dyn_ptr(T* p) noexcept : base_t(reinterpret_cast<std::uintptr_t>(p), &vtable<Trait, T>) {}
 
         template<class Trait2, std::enable_if_t<detail::is_subtrait_v<Trait, Trait2>, bool> = true>
-        dyn_ptr(dyn_ptr<Trait2> p) noexcept : base_t(p.data, detail::get_vptr<Trait>(*p.vptr)) {}
+        dyn_ptr(dyn_ptr<Trait2> p) noexcept : base_t(p.data, p.vptr) {}
 
         template<class Trait2, std::enable_if_t<detail::is_subtrait_v<Trait, Trait2>, bool> = true>
-        dyn_ptr(boxed<Trait2>* p) noexcept : base_t(p->data(), detail::get_vptr<Trait>(*p->vptr)) {}
+        dyn_ptr(boxed<Trait2>* p) noexcept : base_t(p->data(), p->vptr) {}
 
         explicit dyn_ptr(base_t base) : base_t(base) {}
 
@@ -281,10 +294,10 @@ namespace pltl
         dyn_ref(T& r) noexcept : base_t(reinterpret_cast<std::uintptr_t>(&r), &vtable<Trait, T>) {}
 
         template<class Trait2, std::enable_if_t<detail::is_subtrait_v<Trait, Trait2>, bool> = true>
-        dyn_ref(dyn_ref<Trait2> r) noexcept : base_t(r.data, detail::get_vptr<Trait>(*r.vptr)) {}
+        dyn_ref(dyn_ref<Trait2> r) noexcept : base_t(r.data, r.vptr) {}
 
         template<class Trait2, std::enable_if_t<detail::is_subtrait_v<Trait, Trait2>, bool> = true>
-        dyn_ref(boxed<Trait2>& r) noexcept : base_t(r.data(), detail::get_vptr<Trait>(*r.vptr)) {}
+        dyn_ref(boxed<Trait2>& r) noexcept : base_t(r.data(), r.vptr) {}
 
         dyn_ptr<Trait> get_ptr() const noexcept { return dyn_ptr<Trait>(*this); }
     };
@@ -311,7 +324,7 @@ namespace pltl
         template<class Trait, class T>
         struct boxer : boxed<Trait>
         {
-            boxer(T&& val) : _data(std::move(val)) { this->vptr = &boxed_vtable; }
+            explicit boxer(T&& val) : boxed<Trait>(&boxed_vtable), _data(std::move(val)) {}
 
         private:
             static std::uintptr_t data_impl(void const* self) noexcept
