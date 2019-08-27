@@ -71,8 +71,8 @@ namespace StrConv
 template<class T>
 inline StrConv::trait const pltl::vtable<StrConv::trait, T>
 {
-    [](const_this self) { return impl_for<StrConv::trait, T>::to_str(self.get<T>()); },
-    [](mut_this self, std::string_view str) { impl_for<StrConv::trait, T>::from_str(self.get<T>(), str); }
+    delegate<T, impl_for<StrConv::trait, T>::to_str>,
+    delegate<T, impl_for<StrConv::trait, T>::from_str>
 };
 ```
 
