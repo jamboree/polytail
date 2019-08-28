@@ -30,6 +30,9 @@ namespace pltl
     template<class Trait, class T>
     inline Trait const vtable; // User-supplied specialization.
 
+    template<class... Trait>
+    struct composite;
+
     template<class Trait>
     struct boxed;
 
@@ -43,7 +46,7 @@ namespace pltl
     struct const_this;
 
     template<class Trait, class T>
-    inline std::unique_ptr<boxed<Trait>, /*unspecified*/> box_unique(T val);
+    inline std::unique_ptr<boxed<Trait>, box_deleter> box_unique(T val);
 
     template<class Trait, class T>
     inline std::shared_ptr<boxed<Trait>> box_shared(T val);
@@ -109,6 +112,25 @@ s = to_str(aa);
 assert(s == "25");
 from_str(aa, "1");
 assert(a == 1);
+```
+
+### Compose traits on demand:
+```c++
+using Trait = pltl::composite<StrConv::trait, Print::trait>;
+int a = 42;
+pltl::dyn_ref<Trait> r(a);
+print(r); // Print
+from_str(r, "25"); // StrConv
+pltl::dyn_ref<Print::trait const> r2(a); // Can degrade to sub-trait.
+print(r2);
+```
+
+### Create boxed values:
+```c++
+auto p = pltl::box_unique<Trait>(42); // Or box_shared.
+boxed<Trait>& b = *p;
+pltl::dyn_ref<Trait> r(b);
+assert(StrConv::to_str(b) == to_str(r));
 ```
 
 ## License
