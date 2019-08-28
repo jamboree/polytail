@@ -99,38 +99,38 @@ struct pltl::impl_for<StrConv::trait, int>
 ### Use a trait
 ```c++
 std::string s;
-int a = 42;
+int i = 42;
 // Without type-erasure.
-s = StrConv::to_str(a);
+s = StrConv::to_str(i);
 assert(s == "42");
-StrConv::from_str(a, "25");
-assert(a == 25);
+StrConv::from_str(i, "25");
+assert(i == 25);
 
 // With type-erasure & ADL.
-pltl::dyn_ref<StrConv::trait> aa(a);
-s = to_str(aa);
+pltl::dyn_ref<StrConv::trait> erased(i);
+s = to_str(erased);
 assert(s == "25");
-from_str(aa, "1");
+from_str(erased, "1");
 assert(a == 1);
 ```
 
 ### Compose traits on demand:
 ```c++
 using Trait = pltl::composite<StrConv::trait, Print::trait>;
-int a = 42;
-pltl::dyn_ref<Trait> r(a);
-print(r); // Print
-from_str(r, "25"); // StrConv
-pltl::dyn_ref<Print::trait const> r2(a); // Can degrade to sub-trait.
-print(r2);
+int i = 42;
+pltl::dyn_ref<Trait> erased(i);
+print(erased); // Print
+from_str(erased, "25"); // StrConv
+pltl::dyn_ref<Print::trait const> sub(erased); // Can degrade to sub-trait.
+print(sub);
 ```
 
 ### Create boxed values:
 ```c++
 auto p = pltl::box_unique<Trait>(42); // Or box_shared.
-boxed<Trait>& b = *p;
-pltl::dyn_ref<Trait> r(b);
-assert(StrConv::to_str(b) == to_str(r));
+boxed<Trait>& ref = *p;
+pltl::dyn_ref<StrConv::trait> sub(ref); // Can degrade to sub-trait.
+assert(to_str(ref) == to_str(sub));
 ```
 
 ## License
