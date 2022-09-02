@@ -13,7 +13,7 @@ to offer some important benefits of the trait system:
 It can be used with or without type-erasure.
 
 ### Requirements
-- C++17
+- C++20
 
 ### Header
 This is a header-only library with a single header and without extra dependancy.
@@ -135,7 +135,7 @@ assert(to_str(ref) == to_str(sub));
 
 ## License
 
-    Copyright (c) 2019 Jamboree
+    Copyright (c) 2019-2022 Jamboree
 
     Distributed under the Boost Software License, Version 1.0. (See accompanying
     file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
