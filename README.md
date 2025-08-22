@@ -28,7 +28,10 @@ namespace pltl
     struct impl_for; // User-supplied specialization.
 
     template<class Trait, class T>
-    inline Trait const vtable; // User-supplied specialization.
+    inline const Trait vtable; // User-supplied specialization.
+
+    template<class T, class Trait>
+    concept Impl;
 
     template<class... Trait>
     struct composite;
@@ -111,7 +114,7 @@ pltl::dyn_ref<StrConv::trait> erased(i);
 s = to_str(erased);
 assert(s == "25");
 from_str(erased, "1");
-assert(a == 1);
+assert(i == 1);
 ```
 
 ### Compose traits on demand:
@@ -121,21 +124,21 @@ int i = 42;
 pltl::dyn_ref<Trait> erased(i);
 print(erased); // Print
 from_str(erased, "25"); // StrConv
-pltl::dyn_ref<Print::trait const> sub(erased); // Can degrade to sub-trait.
+pltl::dyn_ref<const Print::trait> sub(erased); // Can degrade to sub-trait.
 print(sub);
 ```
 
 ### Create boxed values:
 ```c++
 auto p = pltl::box_unique<Trait>(42); // Or box_shared.
-boxed<Trait>& ref = *p;
-pltl::dyn_ref<StrConv::trait> sub(ref); // Can degrade to sub-trait.
+const boxed<Trait>& ref = *p;
+pltl::dyn_ref<const StrConv::trait> sub(ref); // Can degrade to sub-trait.
 assert(to_str(ref) == to_str(sub));
 ```
 
 ## License
 
-    Copyright (c) 2019-2022 Jamboree
+    Copyright (c) 2019-2025 Jamboree
 
     Distributed under the Boost Software License, Version 1.0. (See accompanying
     file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
