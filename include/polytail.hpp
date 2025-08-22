@@ -37,49 +37,49 @@ namespace pltl {
 
         template<class Trait, bool Implace>
         struct trait_object {
-            constexpr trait_object() : _vptr() {}
+            constexpr trait_object() : m_vptr() {}
 
-            constexpr explicit trait_object(const Trait* p) : _vptr(p) {}
+            constexpr explicit trait_object(const Trait* p) : m_vptr(p) {}
 
             template<class... T>
             constexpr explicit trait_object(const composite<T...>* p)
-                : _vptr(&static_cast<const Trait&>(*p)) {}
+                : m_vptr(&static_cast<const Trait&>(*p)) {}
 
             template<class... T>
             constexpr explicit trait_object(const composite<T...>& p)
-                : _vptr(&static_cast<const Trait&>(p)) {}
+                : m_vptr(&static_cast<const Trait&>(p)) {}
 
         private:
             friend const Trait* get_vdata(const trait_object* p) {
-                return p->_vptr;
+                return p->m_vptr;
             }
             friend const Trait& get_vtable(const trait_object* p) {
-                return *p->_vptr;
+                return *p->m_vptr;
             }
 
-            const Trait* _vptr;
+            const Trait* m_vptr;
         };
 
         template<class Trait>
         struct trait_object<Trait, true> {
-            constexpr trait_object() : _vtable() {}
+            constexpr trait_object() : m_vtable() {}
 
             template<class Trait2>
-            constexpr explicit trait_object(const Trait2* p) : _vtable(*p) {}
+            constexpr explicit trait_object(const Trait2* p) : m_vtable(*p) {}
 
             template<class... T>
             constexpr explicit trait_object(const composite<T...>& p)
-                : _vtable(p) {}
+                : m_vtable(p) {}
 
         private:
             friend const Trait& get_vdata(const trait_object* p) {
-                return p->_vtable;
+                return p->m_vtable;
             }
             friend const Trait& get_vtable(const trait_object* p) {
-                return p->_vtable;
+                return p->m_vtable;
             }
 
-            Trait _vtable;
+            Trait m_vtable;
         };
 
         std::false_type is_trait_object(...);
@@ -125,9 +125,12 @@ namespace pltl {
 
         template<class Trait>
         struct boxed_trait : Trait {
-            std::uintptr_t (*data)(const void*) noexcept;
+            std::uintptr_t data_offset;
             void (*destruct)(void*) noexcept;
         };
+
+        template<class Trait>
+        using boxed_trait_base = trait_object<boxed_trait<Trait>, false>;
 
         template<class Trait, class Trait2>
         using deduce_t = decltype(Trait::deduce(std::declval<Trait2>()));
@@ -201,16 +204,18 @@ namespace pltl {
     } // namespace detail
 
     template<class Trait>
-    struct boxed : detail::trait_object<detail::boxed_trait<Trait>, false> {
+    struct boxed : detail::boxed_trait_base<Trait> {
         explicit boxed(const detail::boxed_trait<Trait>* vptr)
-            : detail::trait_object<detail::boxed_trait<Trait>, false>{vptr} {}
+            : detail::boxed_trait_base<Trait>{vptr} {}
 
         boxed(const boxed&) = delete;
 
         boxed& operator=(const boxed&) = delete;
 
         std::uintptr_t data() const noexcept {
-            return get_vtable(this).data(this);
+            return reinterpret_cast<std::uintptr_t>(
+                reinterpret_cast<const char*>(this) +
+                get_vtable(this).data_offset);
         }
 
         friend void destruct(boxed* self) noexcept {
@@ -333,20 +338,21 @@ namespace pltl {
         template<class Trait, class T>
         struct boxer : boxed<Trait> {
             explicit boxer(T&& val)
-                : boxed<Trait>(&boxed_vtable), _data(std::move(val)) {}
+                : boxed<Trait>(&boxed_vtable), m_data(std::move(val)) {}
 
         private:
-            static std::uintptr_t data_impl(const void* self) noexcept {
-                return reinterpret_cast<std::uintptr_t>(
-                    &static_cast<const boxer*>(self)->_data);
+            static constexpr std::uintptr_t calc_data_offset() {
+                return offsetof(boxer, m_data);
             }
+
             static void destruct_impl(void* self) noexcept {
                 static_cast<boxer*>(self)->~boxer();
             }
-            static inline boxed_trait<Trait> boxed_vtable{
-                vtable<Trait, T>, data_impl, destruct_impl};
 
-            T _data;
+            static inline const boxed_trait<Trait> boxed_vtable{
+                vtable<Trait, T>, calc_data_offset(), destruct_impl};
+
+            T m_data;
         };
     } // namespace detail
 
@@ -445,20 +451,23 @@ namespace pltl {
     constexpr typename detail::delegate_t<T, F> delegate{};
 } // namespace pltl
 
-#define Zz_POLYTAIL_RM_PAREN(...) __VA_ARGS__
-#define Zz_POLYTAIL_RET(T, expr)                                               \
+// Internal macros.
+#define Zz_PLTL_RM_PAREN(...) __VA_ARGS__
+#define Zz_PLTL_RET(T, expr)                                                   \
     ::pltl::enable_expr_t<decltype(expr), T> { return expr; }
-#define Zz_POLYTAIL_RET_PAREN(T, expr)                                         \
-    ::pltl::enable_expr_t<decltype(expr), Zz_POLYTAIL_RM_PAREN T> {            \
-        return expr;                                                           \
-    }
-#define POLYTAIL_RET(T, expr)                                                  \
-    Zz_POLYTAIL_RET(T, ::pltl::detail::get_impl<trait>(self).expr)
-#define POLYTAIL_RET_PAREN(T, expr)                                            \
-    Zz_POLYTAIL_RET_PAREN(T, ::pltl::detail::get_impl<trait>(self).expr)
-#define POLYTAIL_RET_TMP(T, trait, expr)                                       \
-    Zz_POLYTAIL_RET(T, ::pltl::detail::get_impl<trait>(self).expr)
-#define POLYTAIL_RET_TMP_PAREN(T, trait, expr)                                 \
-    Zz_POLYTAIL_RET_PAREN(T, ::pltl::detail::get_impl<trait>(self).expr)
+#define Zz_PLTL_RET_PAREN(T, expr)                                             \
+    ::pltl::enable_expr_t<decltype(expr), Zz_PLTL_RM_PAREN T> { return expr; }
+
+// Public macros.
+#define PLTL_RET(T, expr)                                                      \
+    Zz_PLTL_RET(T, ::pltl::detail::get_impl<trait>(self).expr)
+#define PLTL_RET_PAREN(T, expr)                                                \
+    Zz_PLTL_RET_PAREN(T, ::pltl::detail::get_impl<trait>(self).expr)
+#define PLTL_RET_TMP(T, tmp, expr)                                             \
+    Zz_PLTL_RET(                                                               \
+        T, ::pltl::detail::get_impl<trait<Zz_PLTL_RM_PAREN tmp>>(self).expr)
+#define PLTL_RET_TMP_PAREN(T, tmp, expr)                                       \
+    Zz_PLTL_RET_PAREN(                                                         \
+        T, ::pltl::detail::get_impl<trait<Zz_PLTL_RM_PAREN tmp>>(self).expr)
 
 #endif

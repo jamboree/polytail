@@ -68,14 +68,14 @@ namespace StrConv
     };
 
     template<class Self>
-    inline auto to_str(Self&& self) -> POLYTAIL_RET(std::string, to_str(self))
+    inline auto to_str(Self&& self) -> PLTL_RET(std::string, to_str(self))
 
     template<class Self>
-    inline auto from_str(Self&& self, std::string_view str) -> POLYTAIL_RET(void, from_str(self, str))
+    inline auto from_str(Self&& self, std::string_view str) -> PLTL_RET(void, from_str(self, str))
 }
 
 template<class T>
-inline StrConv::trait const pltl::vtable<StrConv::trait, T>
+inline const StrConv::trait pltl::vtable<StrConv::trait, T>
 {
     delegate<T, impl_for<StrConv::trait, T>::to_str>,
     delegate<T, impl_for<StrConv::trait, T>::from_str>
@@ -131,7 +131,7 @@ print(sub);
 ### Create boxed values:
 ```c++
 auto p = pltl::box_unique<Trait>(42); // Or box_shared.
-const boxed<Trait>& ref = *p;
+const pltl::boxed<Trait>& ref = *p;
 pltl::dyn_ref<const StrConv::trait> sub(ref); // Can degrade to sub-trait.
 assert(to_str(ref) == to_str(sub));
 ```
