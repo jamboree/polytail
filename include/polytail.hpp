@@ -123,11 +123,13 @@ namespace pltl {
                 : indirect_data<Mut>{data}, proxy_trait_base<Trait>{vptr} {}
         };
 
-        template<class Trait>
-        struct boxed_trait : Trait {
+        struct boxed_meta_trait {
             std::uintptr_t data_offset;
             void (*destruct)(void*) noexcept;
         };
+
+        template<class Trait>
+        struct boxed_trait : boxed_meta_trait, Trait {};
 
         template<class Trait>
         using boxed_trait_base = trait_object<boxed_trait<Trait>, false>;
@@ -342,7 +344,14 @@ namespace pltl {
 
         private:
             static constexpr std::uintptr_t calc_data_offset() {
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
+#endif
                 return offsetof(boxer, m_data);
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
             }
 
             static void destruct_impl(void* self) noexcept {
@@ -350,7 +359,8 @@ namespace pltl {
             }
 
             static inline const boxed_trait<Trait> boxed_vtable{
-                vtable<Trait, T>, calc_data_offset(), destruct_impl};
+                boxed_meta_trait{calc_data_offset(), destruct_impl},
+                vtable<Trait, T>};
 
             T m_data;
         };
