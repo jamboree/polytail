@@ -8,6 +8,7 @@
 #define POLYTAIL_HPP_INCLUDED
 
 #include <memory>
+#include <cstdint>
 #include <type_traits>
 
 namespace pltl {
@@ -282,7 +283,7 @@ namespace pltl {
 
         explicit dyn_ptr(base_t base) : base_t(base) {}
 
-        explicit operator bool() const noexcept { return !!this->data; }
+        explicit operator bool() const noexcept { return this->data != 0; }
     };
 
     template<class T, class U>
