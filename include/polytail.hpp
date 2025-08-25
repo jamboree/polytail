@@ -145,8 +145,8 @@ namespace pltl {
     concept Impl =
         !detail::IsTraitObject<T> && requires { impl_for<Trait, T>{}; };
 
-    template<class Trait, class T>
-    inline const Trait vtable = nullptr;
+    template<auto... F>
+    struct meta_list {};
 
     template<class T, class... Trait>
     concept AllImplemented = (... && Impl<T, Trait>);
@@ -160,10 +160,6 @@ namespace pltl {
         constexpr composite(const composite<Trait2...>& other) noexcept
             : detail::indirect_trait_base<Trait>(other)... {}
     };
-
-    template<class... Trait, class T>
-    inline const composite<Trait...> vtable<composite<Trait...>, T>{
-        vtable<Trait, T>...};
 
     template<class... Trait, AllImplemented<Trait...> T>
     struct impl_for<composite<Trait...>, T> {};
@@ -203,6 +199,17 @@ namespace pltl {
         get_impl(const trait_object<Trait2, I>& p) {
             return get_vtable(&p);
         }
+
+        template<class Trait, class T, auto... F>
+        constexpr Trait make_vtable(meta_list<F...>);
+
+        template<class Trait, class T>
+        inline const Trait vtable = make_vtable<Trait, T>(
+            typename Trait::template meta_list<impl_for<Trait, T>>{});
+
+        template<class... Trait, class T>
+        inline const composite<Trait...> vtable<composite<Trait...>, T>{
+            vtable<Trait, T>...};
     } // namespace detail
 
     template<class Trait>
@@ -235,7 +242,8 @@ namespace pltl {
 
         template<Impl<Trait> T>
         dyn_ptr(T* p) noexcept
-            : base_t(reinterpret_cast<std::uintptr_t>(p), &vtable<Trait, T>) {}
+            : base_t(reinterpret_cast<std::uintptr_t>(p),
+                     &detail::vtable<Trait, T>) {}
 
         template<class Trait2>
             requires detail::match_trait_v<Trait, Trait2>
@@ -260,7 +268,8 @@ namespace pltl {
 
         template<Impl<Trait> T>
         dyn_ptr(const T* p) noexcept
-            : base_t(reinterpret_cast<std::uintptr_t>(p), &vtable<Trait, T>) {}
+            : base_t(reinterpret_cast<std::uintptr_t>(p),
+                     &detail::vtable<Trait, T>) {}
 
         template<class Trait2>
             requires detail::match_trait_v<const Trait, Trait2>
@@ -299,7 +308,8 @@ namespace pltl {
 
         template<Impl<Trait> T>
         dyn_ref(T& r) noexcept
-            : base_t(reinterpret_cast<std::uintptr_t>(&r), &vtable<Trait, T>) {}
+            : base_t(reinterpret_cast<std::uintptr_t>(&r),
+                     &detail::vtable<Trait, T>) {}
 
         template<class Trait2>
             requires detail::match_trait_v<Trait, Trait2>
@@ -320,7 +330,8 @@ namespace pltl {
 
         template<Impl<Trait> T>
         dyn_ref(const T& r) noexcept
-            : base_t(reinterpret_cast<std::uintptr_t>(&r), &vtable<Trait, T>) {}
+            : base_t(reinterpret_cast<std::uintptr_t>(&r),
+                     &detail::vtable<Trait, T>) {}
 
         template<class Trait2>
             requires detail::match_trait_v<const Trait, Trait2>
@@ -358,15 +369,18 @@ namespace pltl {
                 static_cast<boxer*>(self)->~boxer();
             }
 
-            static inline const boxed_trait<Trait> boxed_vtable{
-                boxed_meta_trait{calc_data_offset(), destruct_impl},
-                vtable<Trait, T>};
+            static const boxed_trait<Trait> boxed_vtable;
 
             T m_data;
         };
+
+        template<class Trait, class T>
+        inline const boxed_trait<Trait> boxer<Trait, T>::boxed_vtable{
+            boxed_meta_trait{calc_data_offset(), destruct_impl},
+            vtable<Trait, T>};
     } // namespace detail
 
-    struct box_deleter {
+    struct boxed_deleter {
         template<class Trait>
         void operator()(boxed<Trait>* p) const noexcept {
             destruct(p);
@@ -375,8 +389,8 @@ namespace pltl {
     };
 
     template<class Trait, class T>
-    inline std::unique_ptr<boxed<Trait>, box_deleter> box_unique(T val) {
-        return std::unique_ptr<boxed<Trait>, box_deleter>(
+    inline std::unique_ptr<boxed<Trait>, boxed_deleter> box_unique(T val) {
+        return std::unique_ptr<boxed<Trait>, boxed_deleter>(
             new detail::boxer<Trait, T>(std::move(val)));
     }
 
@@ -392,11 +406,6 @@ namespace pltl {
 
         template<class Trait>
         mut_this(boxed<Trait>& b) noexcept : self(b.data()) {}
-
-        template<class T>
-        T& get() noexcept {
-            return *reinterpret_cast<T*>(self);
-        }
     };
 
     struct const_this {
@@ -406,15 +415,11 @@ namespace pltl {
 
         template<class Trait>
         const_this(const boxed<Trait>& b) noexcept : self(b.data()) {}
-
-        template<class T>
-        const T& get() noexcept {
-            return *reinterpret_cast<const T*>(self);
-        }
     };
 
     struct ignore_this {
         ignore_this() = default;
+
         template<class T>
         constexpr ignore_this(const T& b) {}
     };
@@ -433,6 +438,17 @@ namespace pltl {
         template<class R, class... A>
         struct no_this<R (*)(ignore_this, A...) noexcept> : std::true_type {};
 
+        template<class T>
+        struct deref {
+            static T& get(mut_this p) noexcept {
+                return *reinterpret_cast<T*>(p.self);
+            }
+
+            static const T& get(const_this p) noexcept {
+                return *reinterpret_cast<const T*>(p.self);
+            }
+        };
+
         template<auto F>
         struct delegate_no_this {
             template<class R, class U, class... A>
@@ -447,7 +463,7 @@ namespace pltl {
             template<class R, class U, class... A>
             constexpr operator fn_ptr<R(U, A...)>() const {
                 return [](U self, A... a) -> R {
-                    return F(self.template get<T>(), std::forward<A>(a)...);
+                    return F(deref<T>::get(self), std::forward<A>(a)...);
                 };
             }
         };
@@ -455,10 +471,12 @@ namespace pltl {
         template<class T, auto F>
             requires(no_this<decltype(F)>::value)
         struct delegate_t<T, F> : delegate_no_this<F> {};
-    } // namespace detail
 
-    template<class T, auto F>
-    constexpr typename detail::delegate_t<T, F> delegate{};
+        template<class Trait, class T, auto... F>
+        constexpr Trait make_vtable(meta_list<F...>) {
+            return {delegate_t<T, F>{}...};
+        }
+    } // namespace detail
 } // namespace pltl
 
 // Internal macros.

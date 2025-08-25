@@ -27,9 +27,6 @@ namespace pltl
     template<class Trait, class T>
     struct impl_for; // User-supplied specialization.
 
-    template<class Trait, class T>
-    inline const Trait vtable; // User-supplied specialization.
-
     template<class T, class Trait>
     concept Impl;
 
@@ -47,9 +44,10 @@ namespace pltl
 
     struct mut_this;
     struct const_this;
+    struct ignore_this;
 
     template<class Trait, class T>
-    inline std::unique_ptr<boxed<Trait>, box_deleter> box_unique(T val);
+    inline std::unique_ptr<boxed<Trait>, boxed_deleter> box_unique(T val);
 
     template<class Trait, class T>
     inline std::shared_ptr<boxed<Trait>> box_shared(T val);
@@ -65,21 +63,17 @@ namespace StrConv
     {
         std::string(*to_str)(pltl::const_this self);
         void(*from_str)(pltl::mut_this self, std::string_view str);
+
+        template<class Impl>
+        using meta_list = pltl::meta_list<Impl::to_str, Impl::from_str>;
     };
 
     template<class Self>
-    inline auto to_str(Self&& self) -> PLTL_RET(std::string, to_str(self))
+    inline auto to_str(Self&& self) -> PLTL_RET(std::string, to_str(self));
 
     template<class Self>
-    inline auto from_str(Self&& self, std::string_view str) -> PLTL_RET(void, from_str(self, str))
+    inline auto from_str(Self&& self, std::string_view str) -> PLTL_RET(void, from_str(self, str));
 }
-
-template<class T>
-inline const StrConv::trait pltl::vtable<StrConv::trait, T>
-{
-    delegate<T, impl_for<StrConv::trait, T>::to_str>,
-    delegate<T, impl_for<StrConv::trait, T>::from_str>
-};
 ```
 
 ### Implement a trait for a type:
