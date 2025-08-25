@@ -124,13 +124,10 @@ namespace pltl {
                 : indirect_data<Mut>{data}, proxy_trait_base<Trait>{vptr} {}
         };
 
-        struct boxed_meta_trait {
-            std::uintptr_t data_offset;
+        template<class Trait>
+        struct boxed_trait : Trait {
             void (*destruct)(void*) noexcept;
         };
-
-        template<class Trait>
-        struct boxed_trait : boxed_meta_trait, Trait {};
 
         template<class Trait>
         using boxed_trait_base = trait_object<boxed_trait<Trait>, false>;
@@ -201,12 +198,36 @@ namespace pltl {
             return get_vtable(&p);
         }
 
+        template<class T>
+        struct unbox {
+            using type = T;
+        };
+
+        template<class T>
+        struct deref;
+
+        template<class Sig>
+        using fn_ptr = Sig*;
+
+        template<class T, auto F>
+        struct delegate {
+            template<class R, class U, class... A>
+            constexpr operator fn_ptr<R(U, A...)>() const {
+                return [](U self, A... a) -> R {
+                    return F(deref<T>::get(self), std::forward<A>(a)...);
+                };
+            }
+        };
+
         template<class Trait, class T, auto... F>
-        constexpr Trait make_vtable(meta_list<F...>);
+        constexpr Trait make_vtable(meta_list<F...>) {
+            return {delegate<T, F>{}...};
+        }
 
         template<class Trait, class T>
-        inline const Trait vtable = make_vtable<Trait, T>(
-            typename Trait::template meta_list<impl_for<Trait, T>>{});
+        inline const Trait vtable =
+            make_vtable<Trait, T>(typename Trait::template meta_list<
+                                  impl_for<Trait, typename unbox<T>::type>>{});
 
         template<class... Trait, class T>
         inline const composite<Trait...> vtable<composite<Trait...>, T>{
@@ -221,12 +242,6 @@ namespace pltl {
         boxed(const boxed&) = delete;
 
         boxed& operator=(const boxed&) = delete;
-
-        std::uintptr_t data() const noexcept {
-            return reinterpret_cast<std::uintptr_t>(
-                reinterpret_cast<const char*>(this) +
-                get_vtable(this).data_offset);
-        }
 
         friend void destruct(boxed* self) noexcept {
             get_vtable(self).destruct(self);
@@ -252,7 +267,8 @@ namespace pltl {
 
         template<class Trait2>
             requires detail::match_trait_v<Trait, Trait2>
-        dyn_ptr(boxed<Trait2>* p) noexcept : base_t(p->data(), get_vdata(p)) {}
+        dyn_ptr(boxed<Trait2>* p) noexcept
+            : base_t(reinterpret_cast<std::uintptr_t>(p), get_vdata(p)) {}
 
         explicit dyn_ptr(base_t base) : base_t(base) {}
 
@@ -279,7 +295,7 @@ namespace pltl {
         template<class Trait2>
             requires detail::match_trait_v<const Trait, Trait2>
         dyn_ptr(const boxed<Trait2>* p) noexcept
-            : base_t(p->data(), get_vdata(p)) {}
+            : base_t(reinterpret_cast<std::uintptr_t>(p), get_vdata(p)) {}
 
         explicit dyn_ptr(base_t base) : base_t(base) {}
 
@@ -318,7 +334,8 @@ namespace pltl {
 
         template<class Trait2>
             requires detail::match_trait_v<Trait, Trait2>
-        dyn_ref(boxed<Trait2>& r) noexcept : base_t(r.data(), get_vdata(&r)) {}
+        dyn_ref(boxed<Trait2>& r) noexcept
+            : base_t(reinterpret_cast<std::uintptr_t>(&r), get_vdata(&r)) {}
 
         dyn_ptr<Trait> get_ptr() const noexcept {
             return dyn_ptr<Trait>(*this);
@@ -341,44 +358,78 @@ namespace pltl {
         template<class Trait2>
             requires detail::match_trait_v<const Trait, Trait2>
         dyn_ref(const boxed<Trait2>& r) noexcept
-            : base_t(r.data(), get_vdata(&r)) {}
+            : base_t(reinterpret_cast<std::uintptr_t>(&r), get_vdata(&r)) {}
 
         dyn_ptr<const Trait> get_ptr() const noexcept {
             return dyn_ptr<const Trait>(*this);
         }
     };
 
+    struct mut_this {
+        std::uintptr_t self;
+
+        mut_this(detail::indirect_data<true> h) noexcept : self(h.data) {}
+
+        template<class Trait>
+        mut_this(boxed<Trait>& b) noexcept
+            : self(reinterpret_cast<std::uintptr_t>(&b)) {}
+    };
+
+    struct const_this {
+        std::uintptr_t self;
+
+        const_this(detail::indirect_data<false> h) noexcept : self(h.data) {}
+
+        template<class Trait>
+        const_this(const boxed<Trait>& b) noexcept
+            : self(reinterpret_cast<std::uintptr_t>(&b)) {}
+    };
+
     namespace detail {
+        template<class T>
+        struct deref {
+            static T& get(mut_this p) noexcept {
+                return *reinterpret_cast<T*>(p.self);
+            }
+
+            static const T& get(const_this p) noexcept {
+                return *reinterpret_cast<const T*>(p.self);
+            }
+        };
+
         template<class Trait, class T>
         struct boxer : boxed<Trait> {
             explicit boxer(T&& val)
                 : boxed<Trait>(&boxed_vtable), m_data(std::move(val)) {}
 
         private:
-            static constexpr std::uintptr_t calc_data_offset() {
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Winvalid-offsetof"
-#endif
-                return offsetof(boxer, m_data);
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
-            }
+            friend struct deref<boxer>;
 
             static void destruct_impl(void* self) noexcept {
                 static_cast<boxer*>(self)->~boxer();
             }
 
-            static const boxed_trait<Trait> boxed_vtable;
+            static inline const boxed_trait<Trait> boxed_vtable{
+                vtable<Trait, boxer>, destruct_impl};
 
             T m_data;
         };
 
         template<class Trait, class T>
-        inline const boxed_trait<Trait> boxer<Trait, T>::boxed_vtable{
-            boxed_meta_trait{calc_data_offset(), destruct_impl},
-            vtable<Trait, T>};
+        struct unbox<boxer<Trait, T>> {
+            using type = T;
+        };
+
+        template<class Trait, class T>
+        struct deref<boxer<Trait, T>> {
+            static T& get(mut_this p) noexcept {
+                return reinterpret_cast<boxer<Trait, T>*>(p.self)->m_data;
+            }
+
+            static const T& get(const_this p) noexcept {
+                return reinterpret_cast<const boxer<Trait, T>*>(p.self)->m_data;
+            }
+        };
     } // namespace detail
 
     struct boxed_deleter {
@@ -399,85 +450,6 @@ namespace pltl {
     inline std::shared_ptr<boxed<Trait>> box_shared(T val) {
         return std::make_shared<detail::boxer<Trait, T>>(std::move(val));
     }
-
-    struct mut_this {
-        std::uintptr_t self;
-
-        mut_this(detail::indirect_data<true> h) noexcept : self(h.data) {}
-
-        template<class Trait>
-        mut_this(boxed<Trait>& b) noexcept : self(b.data()) {}
-    };
-
-    struct const_this {
-        std::uintptr_t self;
-
-        const_this(detail::indirect_data<false> h) noexcept : self(h.data) {}
-
-        template<class Trait>
-        const_this(const boxed<Trait>& b) noexcept : self(b.data()) {}
-    };
-
-    struct ignore_this {
-        ignore_this() = default;
-
-        template<class T>
-        constexpr ignore_this(const T& b) {}
-    };
-
-    namespace detail {
-        template<class Sig>
-        using fn_ptr = Sig*;
-
-        template<class FT>
-        struct no_this : std::false_type {};
-
-        template<class R, class... A>
-        struct no_this<R (*)(ignore_this, A...)> : std::true_type {};
-
-        // MSVC cannot deduce noexcept(B), so another a specialization.
-        template<class R, class... A>
-        struct no_this<R (*)(ignore_this, A...) noexcept> : std::true_type {};
-
-        template<class T>
-        struct deref {
-            static T& get(mut_this p) noexcept {
-                return *reinterpret_cast<T*>(p.self);
-            }
-
-            static const T& get(const_this p) noexcept {
-                return *reinterpret_cast<const T*>(p.self);
-            }
-        };
-
-        template<auto F>
-        struct delegate_no_this {
-            template<class R, class U, class... A>
-            constexpr operator fn_ptr<R(U, A...)>() const {
-                return
-                    [](U, A... a) -> R { return F({}, std::forward<A>(a)...); };
-            }
-        };
-
-        template<class T, auto F>
-        struct delegate_t {
-            template<class R, class U, class... A>
-            constexpr operator fn_ptr<R(U, A...)>() const {
-                return [](U self, A... a) -> R {
-                    return F(deref<T>::get(self), std::forward<A>(a)...);
-                };
-            }
-        };
-
-        template<class T, auto F>
-            requires(no_this<decltype(F)>::value)
-        struct delegate_t<T, F> : delegate_no_this<F> {};
-
-        template<class Trait, class T, auto... F>
-        constexpr Trait make_vtable(meta_list<F...>) {
-            return {delegate_t<T, F>{}...};
-        }
-    } // namespace detail
 } // namespace pltl
 
 // Internal macros.

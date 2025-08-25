@@ -44,7 +44,6 @@ namespace pltl
 
     struct mut_this;
     struct const_this;
-    struct ignore_this;
 
     template<class Trait, class T>
     inline std::unique_ptr<boxed<Trait>, boxed_deleter> box_unique(T val);
