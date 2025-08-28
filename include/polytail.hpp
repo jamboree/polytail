@@ -126,7 +126,7 @@ namespace pltl {
 
         template<class Trait>
         struct boxed_trait : Trait {
-            void (*destruct)(void*) noexcept;
+            void (*destroy)(void*) noexcept;
         };
 
         template<class Trait>
@@ -243,8 +243,11 @@ namespace pltl {
 
         boxed& operator=(const boxed&) = delete;
 
-        friend void destruct(boxed* self) noexcept {
-            get_vtable(self).destruct(self);
+    protected:
+        ~boxed() = default;
+
+        friend void destroy(boxed* self) noexcept {
+            get_vtable(self).destroy(self);
         }
     };
 
@@ -405,12 +408,12 @@ namespace pltl {
         private:
             friend struct deref<boxer>;
 
-            static void destruct_impl(void* self) noexcept {
-                static_cast<boxer*>(self)->~boxer();
+            static void destroy_impl(void* self) noexcept {
+                delete static_cast<boxer*>(self);
             }
 
             static inline const boxed_trait<Trait> boxed_vtable{
-                vtable<Trait, boxer>, destruct_impl};
+                vtable<Trait, boxer>, destroy_impl};
 
             T m_data;
         };
@@ -435,8 +438,7 @@ namespace pltl {
     struct boxed_deleter {
         template<class Trait>
         void operator()(boxed<Trait>* p) const noexcept {
-            destruct(p);
-            ::operator delete(p);
+            destroy(p);
         }
     };
 
